@@ -1,0 +1,10 @@
+.env
+.code-doctor/
+*.bak
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+*.egg-info/

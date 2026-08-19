@@ -1,0 +1,91 @@
+name: Code Doctor
+
+# Revisa os arquivos alterados em cada Pull Request e comenta o resultado.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Code Doctor
+        run: pip install .
+
+      - name: Descobrir arquivos alterados
+        id: changed
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE"...HEAD || true)
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Rodar revisão
+        id: review
+        # Defina no repositório apenas os secrets do provedor que você usa.
+        # Para trocar de provedor, configure as variáveis CODE_DOCTOR_* como
+        # "Variables" em Settings → Secrets and variables → Actions.
+        env:
+          CODE_DOCTOR_PROVIDER: ${{ vars.CODE_DOCTOR_PROVIDER }}
+          CODE_DOCTOR_MODEL: ${{ vars.CODE_DOCTOR_MODEL }}
+          CODE_DOCTOR_BASE_URL: ${{ vars.CODE_DOCTOR_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CODE_DOCTOR_API_KEY: ${{ secrets.CODE_DOCTOR_API_KEY }}
+        run: |
+          # Em PRs vindos de FORKS, o GitHub não expõe secrets (por segurança),
+          # então nenhuma chave estará disponível — a revisão é pulada de propósito.
+          if [ -z "$ANTHROPIC_API_KEY$OPENAI_API_KEY$OPENROUTER_API_KEY$GROQ_API_KEY$DEEPSEEK_API_KEY$CODE_DOCTOR_API_KEY" ]; then
+            echo "Revisão pulada: nenhuma chave de API disponível (esperado em PRs de forks, por segurança)." > report.txt
+            cat report.txt
+            exit 0
+          fi
+          if [ -z "${{ steps.changed.outputs.files }}" ]; then
+            echo "Nenhum arquivo alterado para revisar." > report.txt
+          else
+            # Roda em cada arquivo alterado; nunca aplica mudanças na Action.
+            echo "${{ steps.changed.outputs.files }}" | while read -r f; do
+              [ -f "$f" ] && code-doctor "$f" >> report.txt 2>&1
+            done
+          fi
+          cat report.txt
+
+      - name: Comentar no PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## 🩺 Code Doctor\n\n';
+            try {
+              const report = fs.readFileSync('report.txt', 'utf8').trim();
+              body += report
+                ? '```\n' + report.slice(0, 60000) + '\n```'
+                : '_Sem observações._';
+            } catch (e) {
+              body += '_Não foi possível gerar o relatório._';
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-doctor"
+version = "0.6.0"
+description = "Revisor de código com IA (API da Anthropic): aponta falhas, sugere e aplica correções."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic>=0.40.0",
+]
+
+[project.scripts]
+code-doctor = "code_doctor.cli:main"
+
+[tool.setuptools]
+packages = ["code_doctor"]
