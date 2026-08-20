@@ -111,7 +111,15 @@ Três abas no topo:
 | 💬 **Tirar dúvida** | Escreva a pergunta → botão **Perguntar**. |
 | 🕵️ **Camuflar** | Cole o código, escolha um idioma secreto → **Camuflar** / **Revelar**. É só diversão, não gasta nada. |
 
-A **barrinha embaixo** mostra o quanto você já gastou na sessão.
+A **barrinha embaixo** mostra o quanto você já gastou na sessão, em **dólar e em
+reais** (R$). É uma estimativa; a cotação pode ser ajustada na variável
+`CODE_DOCTOR_USD_BRL`.
+
+## Testar rápido
+
+Tem um arquivo cheio de erros de propósito em **`exemplos/exemplo_bugs.py`**. Cole
+o conteúdo dele na aba **Revisar código** (ou rode `code-doctor exemplos/exemplo_bugs.py --diff`)
+pra ver o Dr. Código encontrando os problemas.
 
 ---
 
@@ -144,16 +152,26 @@ e o gasto muda junto:
 ## Usar de graça com o Ollama (opcional)
 
 Quer usar **sem pagar nada**? O Ollama roda um modelo de IA no seu próprio
-computador. Configure uma vez:
+computador. **Jeito fácil:** no terminal (a janelinha preta), rode:
 
-1. Baixe e instale o Ollama: **https://ollama.com** (Windows, Mac ou Linux).
-2. Abra o terminal (a janelinha preta) e rode uma vez, pra baixar um modelo:
+```
+code-doctor instalar-ollama
+```
+
+Ele detecta o seu sistema e instala sozinho (é só confirmar com "s"). Depois,
+baixa o modelo e é só escolher **"Grátis (Ollama)"** no seletor da página.
+
+> ⚠️ Um **botão na página** não consegue instalar programas (o navegador bloqueia
+> isso por segurança). Por isso a instalação é por esse comando no terminal.
+
+**Ou instale manualmente:**
+
+1. Baixe o Ollama: **https://ollama.com** (Windows, Mac ou Linux).
+2. No terminal, rode uma vez pra baixar um modelo:
    ```
    ollama pull llama3.1
    ```
-3. Deixe o Ollama aberto/rodando.
-4. Na página do Dr. Código, no seletor **"Modelo:"**, escolha **"Grátis (Ollama)"**.
-   Se quiser outro modelo, digite o nome no campinho ao lado.
+3. Deixe o Ollama rodando e escolha **"Grátis (Ollama)"** na página.
 
 > O Ollama roda **100% no seu PC**: não custa nada e o seu código **não é enviado
 > pra internet**. Só é um pouco mais lento e exige um computador razoável.
