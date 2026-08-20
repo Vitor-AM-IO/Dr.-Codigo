@@ -142,6 +142,7 @@ pra ver o Dr. Código encontrando os problemas.
 | `authentication_error` / `401` | A chave está errada ou incompleta. Crie outra em platform.claude.com/settings/keys e cole de novo. |
 | Erro falando de **billing/credits** | Falta crédito na conta. Vá em **Settings → Billing** no site da Anthropic e adicione. |
 | A janela preta fecha sozinha na hora | Abra o `cmd` **pela barra de endereço** (Parte 4, passo 2-3), não dê dois cliques no `start.py`. |
+| **No Linux:** `externally-managed-environment` | O Debian/Ubuntu bloqueia o pip do sistema (proteção). O programa já tenta contornar; se ainda falhar, rode: `pip install --user --break-system-packages anthropic` e depois `python3 start.py` de novo. |
 
 ---
 
