@@ -169,3 +169,56 @@ def collect_files(target: Path, extensions: set[str]) -> list[Path]:
         if p.suffix.lower() in extensions:
             files.append(p)
     return files
+
+
+# Prompt enxuto: só problemas graves, saída curta (economiza tokens de saída).
+_SERIOUS_SYSTEM = (
+    "Você é um revisor de código sênior. Aponte APENAS problemas graves: falhas de "
+    "segurança, bugs que quebram a aplicação, e risco de perda de dados. Ignore "
+    "estilo, formatação e detalhes menores. Responda SOMENTE com JSON válido, sem "
+    "cercas de código, no formato: "
+    '{"issues":[{"line":N,"severity":"critical|high","title":"...","description":"...",'
+    '"suggestion":"..."}]}. Se não houver nada grave, retorne {"issues":[]}.'
+)
+
+# Prompt de visão geral do projeto (uma única chamada).
+_PROJECT_SYSTEM = (
+    "Você é um arquiteto de software. Faça uma AVALIAÇÃO GERAL do projeto, em "
+    "português e em texto corrido com tópicos curtos: (1) o que o projeto parece "
+    "fazer, (2) os principais riscos de segurança e bugs, (3) as 3 a 5 "
+    "recomendações mais importantes. Seja objetivo. NÃO reescreva o código."
+)
+
+
+def review_serious(code: str, filename: str, provider,
+                   max_tokens: int = 1500) -> "Review":
+    """Revisa um arquivo reportando apenas problemas graves (saída curta)."""
+    path = Path(filename or "trecho.txt")
+    user = prompts.build_user_message(path.name, _language_for(path), code)
+    try:
+        raw, usage = provider.complete(_SERIOUS_SYSTEM, user, max_tokens)
+    except ProviderError as exc:
+        return Review(path=path, summary="", error=f"erro no provedor: {exc}")
+    return _parse_review(path, raw, code, usage)
+
+
+def review_project(files: list[tuple[str, str]], provider,
+                   max_tokens: int = 3000,
+                   char_budget: int = 40000) -> tuple[str, Usage, str | None]:
+    """Avaliação geral do projeto inteiro numa única chamada (econômico)."""
+    parts: list[str] = []
+    used = 0
+    for rel, code in files:
+        chunk = code[:4000]
+        block = f"### {rel}\n{chunk}\n\n"
+        if used + len(block) > char_budget:
+            parts.append(f"### {rel}\n(conteúdo omitido por tamanho)\n\n")
+            continue
+        parts.append(block)
+        used += len(block)
+    user = "Projeto a avaliar (arquivos e trechos):\n\n" + "".join(parts)
+    try:
+        text, usage = provider.complete(_PROJECT_SYSTEM, user, max_tokens)
+    except ProviderError as exc:
+        return "", Usage(), f"erro no provedor: {exc}"
+    return text.strip(), usage, None
