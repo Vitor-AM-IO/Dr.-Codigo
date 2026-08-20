@@ -1,277 +1,209 @@
-# 🩺 Code Doctor
+# 🩺 Dr. Código
 
-Revisor de código com IA usando a **API da Anthropic (Claude)**. Ele lê seus
-arquivos, **aponta falhas** (bugs, segurança, casos de borda, más práticas),
-**sugere a correção** e, se você quiser, **aplica direto no arquivo**.
-
-Funciona de dois jeitos:
-
-- **CLI no terminal** — rode num arquivo ou numa pasta inteira.
-- **GitHub Action** — revisa automaticamente os arquivos alterados em cada Pull Request.
-
-Cada pessoa usa a **própria chave** da Anthropic, então cada um gasta os próprios créditos.
+Lê o seu código, **acha os erros e conserta pra você** usando inteligência
+artificial. Também tira dúvidas de programação e tem um modo "código secreto".
 
 ---
 
-## Instalação
-
-Clone o repositório e instale:
+## ⚡ Atalho pra quem já manja (terminal)
 
 ```bash
 git clone https://github.com/Vitor-AM-IO/Dr.-Codigo.git
 cd Dr.-Codigo
 pip install .
+export ANTHROPIC_API_KEY="sk-ant-suachave"   # Windows: set ANTHROPIC_API_KEY=...
+
+code-doctor web                 # abre a interface no navegador
+code-doctor arquivo.py --diff   # revisa e mostra o diff
+code-doctor arquivo.py --apply  # aplica a correção (faz backup automático)
+code-doctor hide arquivo.py     # camufla o código
 ```
 
-> Requer Python 3.10+.
+Chave em https://platform.claude.com/settings/keys · Outros provedores (OpenAI,
+Groq, Ollama local…) na seção [Trocar de IA](#-trocar-de-ia-openai-groq-ollama).
 
-## Configurar a chave da API
+Não é técnico? Segue o guia abaixo, é tranquilo. 👇
 
-Pegue sua chave em <https://console.anthropic.com/settings/keys> e defina a
-variável de ambiente:
+---
 
-```bash
-export ANTHROPIC_API_KEY="sua-chave-aqui"
-```
+# 🐣 Guia do zero (nunca programei)
 
-Ou copie o arquivo de exemplo e preencha:
+São 4 partes. Faça uma vez; depois é só abrir e usar.
 
-```bash
-cp .env.example .env
-# edite o .env e coloque sua chave
-```
+## Parte 1 — Instalar o Python (o motor do programa)
 
-## Como usar (CLI)
+1. Abra: **https://www.python.org/downloads/**
+2. Clique no botão amarelo escrito **"Download Python 3.x.x"** (no meio da página).
+3. Abra o arquivo que baixou (fica na pasta **Downloads**, nome tipo
+   `python-3.x.x-amd64.exe`).
+4. Vai abrir uma janela de instalação. **Antes de clicar em qualquer coisa**, olhe
+   na parte de **baixo** da janela e marque a caixinha:
+   ☑️ **"Add python.exe to PATH"**  ← isto é o que mais gente esquece!
+5. Agora clique em **"Install Now"** (o primeiro, o grande).
+6. Espere a barrinha encher e clique em **"Close"**.
 
-```bash
-# Só analisar e listar os problemas (não altera nada):
-code-doctor caminho/do/arquivo.py
+## Parte 2 — Baixar o Dr. Código
 
-# Analisar uma pasta inteira:
-code-doctor ./src
+1. Abra a página do projeto: **https://github.com/Vitor-AM-IO/Dr.-Codigo**
+2. Ache o botão **verde** escrito **`< > Code`** (fica no canto direito, um pouco
+   acima da lista de arquivos). Clique nele.
+3. No menuzinho que abre, clique na última opção: **"Download ZIP"**.
+4. Vá na pasta **Downloads**. Clique com o **botão direito** no arquivo
+   `Dr.-Codigo-main.zip` → **"Extrair tudo…"** → **"Extrair"**.
+5. Abriu uma pasta chamada **`Dr.-Codigo-main`**. **Deixe essa janela aberta**,
+   vamos voltar nela na Parte 4.
 
-# Ver o diff das correções propostas:
-code-doctor arquivo.py --diff
+## Parte 3 — Pegar a chave da inteligência artificial
 
-# Aplicar as correções no arquivo (backup automático em .code-doctor/backups):
-code-doctor arquivo.py --apply
-```
+Essa "chave" é uma senha longa que deixa o programa conversar com o Claude.
 
-Também funciona via módulo, sem instalar:
+1. Abra: **https://platform.claude.com/settings/keys**
+2. **Entre na sua conta** (ou clique em **"Sign up"** pra criar — pode usar o
+   Google). É a página já direto na parte de chaves.
+3. 💳 Se for sua primeira vez, ele pode pedir pra **configurar pagamento antes**.
+   Clique em **Settings** (à esquerda) → **Billing** → adicione um cartão e
+   coloque uns poucos créditos (ex.: US$5). *A API cobra por uso e não tem plano
+   grátis — mas cada revisão custa centavos.*
+4. Volte pra página de chaves. No canto direito, clique no botão
+   **"Create Key"**.
+5. Dê um nome qualquer (ex.: `dr-codigo`) e confirme em **"Create Key"**.
+6. Vai aparecer a chave, começando com **`sk-ant-`**. **Clique em "Copy" e copie
+   agora** — ela só aparece **uma vez**! (Se perder, é só criar outra.)
 
-```bash
-python -m code_doctor arquivo.py
-```
+## Parte 4 — Abrir o programa 🎉
 
-### Opções
+Você **não precisa** editar nenhum arquivo. Na primeira vez, o próprio programa
+pergunta a sua chave ali no terminal e guarda pra você.
 
-| Flag            | O que faz                                                      |
-|-----------------|----------------------------------------------------------------|
-| `--apply`       | Aplica as correções (backup automático em `.code-doctor/backups`) |
-| `--diff`        | Mostra o diff das mudanças propostas                          |
-| `--provider`    | Escolhe o provedor (anthropic, openai, groq, ollama…)        |
-| `--model`       | Escolhe o modelo (padrão do anthropic: `claude-sonnet-5`)    |
-| `--ext`         | Extensões extras, ex.: `--ext .toml,.cfg`                     |
-| `--no-cache`    | Ignora a memória e reanalisa tudo (gasta mais tokens)        |
-| `--clear-cache` | Apaga a memória de revisões e sai                            |
-| `--fail-on`     | Em CI, sai com erro se houver problema deste nível ou pior   |
-| `--version`     | Mostra a versão                                              |
+1. Volte pra janela da pasta **`Dr.-Codigo-main`** (da Parte 2).
+2. Clique na **barra de endereço** (a faixa no topo que mostra o caminho da
+   pasta). O texto vai ficar selecionado.
+3. Digite **`cmd`** por cima e aperte **Enter**. Vai abrir uma **janelinha preta**
+   (é o terminal, tudo normal).
+4. Nessa janela preta, digite exatamente e aperte Enter:
+   ```
+   python start.py
+   ```
+5. Na **primeira vez**, ele mostra: *"Cole sua chave e aperte Enter:"*.
+   - Clique com o **botão direito** dentro da janela preta — isso **cola** a chave
+     que você copiou na Parte 3.
+   - Aperte **Enter**.
+   - Ele salva a chave no seu computador e mostra *"✓ Chave salva"*.
+6. Pronto! Em alguns segundos **a página abre sozinha no navegador**. 🩺
 
-O modo padrão é **seguro**: sem `--apply`, ele nunca escreve no seu arquivo —
-só lista os problemas. Use `--diff` para revisar antes e `--apply` para aplicar.
+> ✅ **Deu certo se:** apareceu *"✓ Chave salva"* e a página abriu no navegador.
+>
+> 🔒 A chave fica **só no seu PC** (num arquivo chamado `.env`) e **nunca** é
+> enviada pra internet nem pro GitHub.
+>
+> 🔁 Nas **próximas vezes**, ele **não pergunta mais** — é só repetir os passos 1
+> a 4 e a página abre direto. Pra **fechar** o programa, feche a janelinha preta.
+
+---
+
+# 🖥️ Como usar a página
+
+Três abas no topo:
+
+| Aba | O que faz |
+|-----|-----------|
+| 🔍 **Revisar código** | Cole o código na caixa → botão **Revisar**. Ele lista os erros e mostra a versão corrigida (com botão **copiar**). |
+| 💬 **Tirar dúvida** | Escreva a pergunta → botão **Perguntar**. |
+| 🕵️ **Camuflar** | Cole o código, escolha um idioma secreto → **Camuflar** / **Revelar**. É só diversão, não gasta nada. |
+
+A **barrinha embaixo** mostra o quanto você já gastou na sessão.
+
+---
+
+# 😵 Deu erro? (o que fazer em cada caso)
+
+| Apareceu isto… | Faça isto |
+|----------------|-----------|
+| `'python' não é reconhecido…` na janela preta | O Python não entrou no PATH. Refaça a **Parte 1**, marcando a caixinha **"Add python.exe to PATH"**, e reinicie o PC. |
+| Aviso amarelo **"chave não configurada"** na página | Feche a janela preta, apague o arquivo `.env` da pasta (se existir) e refaça a **Parte 4** colando a chave com atenção. |
+| `authentication_error` / `401` | A chave está errada ou incompleta. Crie outra em platform.claude.com/settings/keys e cole de novo. |
+| Erro falando de **billing/credits** | Falta crédito na conta. Vá em **Settings → Billing** no site da Anthropic e adicione. |
+| A janela preta fecha sozinha na hora | Abra o `cmd` **pela barra de endereço** (Parte 4, passo 2-3), não dê dois cliques no `start.py`. |
+
+---
+
+# 💰 Escolher o modelo (e economizar)
+
+Na página, no topo, tem um seletor **"Modelo:"** com 3 opções. Você troca na hora
+e o gasto muda junto:
+
+| Opção na tela | Custo | Quando usar |
+|---------------|-------|-------------|
+| **Melhor qualidade** | ~$2/$10 por 1 milhão de tokens | Revisões difíceis, quando quer o melhor resultado |
+| **Mais econômico** | ~$1/$5 (metade do preço) | No dia a dia — corta o gasto pela metade |
+| **Grátis (Ollama)** | **R$ 0** | Roda no seu próprio PC, sem pagar nada |
+
+> A barrinha de gasto embaixo já mostra o custo estimado do modelo escolhido. Na
+> opção grátis, ela fica em zero.
+
+## Usar de graça com o Ollama (opcional)
+
+Quer usar **sem pagar nada**? O Ollama roda um modelo de IA no seu próprio
+computador. Configure uma vez:
+
+1. Baixe e instale o Ollama: **https://ollama.com** (Windows, Mac ou Linux).
+2. Abra o terminal (a janelinha preta) e rode uma vez, pra baixar um modelo:
+   ```
+   ollama pull llama3.1
+   ```
+3. Deixe o Ollama aberto/rodando.
+4. Na página do Dr. Código, no seletor **"Modelo:"**, escolha **"Grátis (Ollama)"**.
+   Se quiser outro modelo, digite o nome no campinho ao lado.
+
+> O Ollama roda **100% no seu PC**: não custa nada e o seu código **não é enviado
+> pra internet**. Só é um pouco mais lento e exige um computador razoável.
+
+---
 
 
 
-
-## Usar outro provedor (não só a Anthropic)
-
-Nem todo mundo usa a Anthropic — o Code Doctor funciona com **qualquer API no
-formato OpenAI**, então dá pra escolher o que você preferir. Basta definir
-`CODE_DOCTOR_PROVIDER` (no `.env` ou como variável de ambiente) e a chave/modelo
-correspondentes.
-
-| Provedor      | `CODE_DOCTOR_PROVIDER` | Chave                | Exemplo de modelo                  |
-|---------------|------------------------|----------------------|------------------------------------|
-| Anthropic     | `anthropic` (padrão)   | `ANTHROPIC_API_KEY`  | `claude-sonnet-5`                  |
-| OpenAI        | `openai`               | `OPENAI_API_KEY`     | `gpt-4o-mini`                      |
-| OpenRouter    | `openrouter`           | `OPENROUTER_API_KEY` | `meta-llama/llama-3.1-8b-instruct` |
-| Groq          | `groq`                 | `GROQ_API_KEY`       | `llama-3.1-70b-versatile`          |
-| Together      | `together`             | `TOGETHER_API_KEY`   | `meta-llama/Llama-3-70b-chat-hf`   |
-| DeepSeek      | `deepseek`             | `DEEPSEEK_API_KEY`   | `deepseek-chat`                    |
-| Mistral       | `mistral`              | `MISTRAL_API_KEY`    | `mistral-large-latest`             |
-| Ollama (local)| `ollama`               | — (sem chave)        | `llama3.1`                         |
-| LM Studio     | `lmstudio`             | — (sem chave)        | (o que estiver carregado)          |
-| Endpoint próprio | `custom`            | `CODE_DOCTOR_API_KEY`| definido por você                  |
-
-Exemplos:
+Não quer usar a Anthropic? Dá pra usar **OpenAI, OpenRouter, Groq, DeepSeek,
+Mistral** ou rodar **de graça no seu PC** com **Ollama**. Abra o arquivo
+`.env.example` (na pasta do programa) — ele já tem todos os exemplos prontos, é só
+descomentar um. Exemplos:
 
 ```bash
 # OpenAI
-CODE_DOCTOR_PROVIDER=openai OPENAI_API_KEY=sk-... \
-  code-doctor arquivo.py --model gpt-4o-mini
+CODE_DOCTOR_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+CODE_DOCTOR_MODEL=gpt-4o-mini
 
-# 100% local e de graça com Ollama (nenhuma chave, nenhum custo)
-CODE_DOCTOR_PROVIDER=ollama code-doctor arquivo.py --model llama3.1
-
-# Endpoint compatível com OpenAI que você mesmo hospeda
-CODE_DOCTOR_PROVIDER=custom \
-  CODE_DOCTOR_BASE_URL=https://seu-endpoint/v1 \
-  CODE_DOCTOR_API_KEY=... \
-  code-doctor arquivo.py --model seu-modelo
+# Ollama — roda no seu computador, sem chave e sem custo
+CODE_DOCTOR_PROVIDER=ollama
+CODE_DOCTOR_MODEL=llama3.1
 ```
 
-Também dá pra escolher direto na linha de comando com `--provider`:
+---
 
-```bash
-code-doctor arquivo.py --provider groq --model llama-3.1-70b-versatile
-```
+# 🤖 Revisão automática no GitHub (Pull Requests)
 
-> O provedor vale para tudo: CLI, interface web e GitHub Action. A memória (cache)
-> guarda a revisão por provedor+modelo, então trocar de modelo não reaproveita
-> resultado antigo por engano.
->
-> **Local com Ollama = custo zero.** Se você não quer gastar nada nem depender de
-> nuvem, rode um modelo local com o Ollama e aponte o Code Doctor pra ele.
+Já vem pronto pra comentar a revisão sozinho em cada Pull Request. Para ligar:
 
-## Interface web (para quem não é de terminal)
+1. No seu repositório: **Settings → Secrets and variables → Actions**.
+2. Aba **Secrets** → botão **"New repository secret"**.
+3. **Name:** `ANTHROPIC_API_KEY` — **Secret:** sua chave → **Add secret**.
+4. Pronto. Ao abrir um Pull Request, o Dr. Código comenta os erros nele.
 
-Prefere clicar em vez de digitar comandos? O Code Doctor tem uma página local:
+> Em PRs de **forks** (gente de fora), o GitHub não passa sua chave por segurança —
+> a revisão é pulada de propósito nesses casos.
 
-```bash
-code-doctor web
-```
+---
 
-Isso abre no navegador uma tela simples onde você:
+# 🔒 Segurança e privacidade
 
-- **cola o código** e clica em *Revisar* (ele aponta as falhas e mostra o código corrigido pra copiar/baixar), ou
-- troca para **Tirar dúvida** e pergunta em português sobre qualquer código;
-- acompanha uma **barra de consumo** com os tokens usados e o **custo estimado** da
-  sessão, com um orçamento que você mesmo define.
+- Sua chave fica só no seu PC (arquivo `.env`, que **nunca** vai pro GitHub).
+- O código enviado pra revisão vai pra IA que você escolher. Pra sigilo total, use
+  **Ollama** (roda tudo local, não manda nada pra internet).
+- As correções são de IA e podem errar — confira antes de usar em algo sério.
 
-Quem não conhece terminal pode simplesmente rodar o atalho:
+Detalhes em [SECURITY.md](SECURITY.md).
 
-```bash
-python start.py
-```
+---
 
-que instala o necessário na primeira vez e abre a página sozinho.
-
-> **Seguro para iniciantes:** no modo web o Code Doctor trabalha só com o código
-> que você **cola** — ele nunca altera os arquivos do seu computador. Não tem como
-> "quebrar o projeto".
->
-> A barra de custo é uma **estimativa** (tokens × preço do modelo), não o saldo
-> real da sua conta — a API não expõe esse saldo. Serve como guia de gasto.
-
-
-## 🕵️ Camuflar código (modo secreto — só por diversão)
-
-Um extra divertido: transforme seu código em glifos de outro "idioma" e revele
-de volta o original, sem perder nada.
-
-```bash
-# camuflar em runas (padrão), katakana, braille ou emoji
-code-doctor hide app.py --style katakana --out app.secret
-
-# revelar de volta (detecta o idioma sozinho)
-code-doctor reveal app.secret --out app.py
-```
-
-Exemplo — `senha = "1234"` vira:
-
-```
-runas:    ᚼᛖᚵᛎᚺᚦᚤᛀᚯᚲᚠᛂᚬᚳᚨᛓᚭᚢᚨᛠ
-katakana: ソプザハセェゥチグコァッキゴォピギィォメ
-emoji:    😜😶😕😮😚😆😄😠😏😒😀😢😌😓😈😳😍😂😈🙀
-```
-
-Também está na interface web, na aba **🕵️ Camuflar** — cola, escolhe o idioma,
-clica em *Camuflar* ou *Revelar*.
-
-> É **100% local** (não usa a API, não gasta nada) e **reversível**. Mas é
-> **camuflagem, não criptografia**: qualquer pessoa com esta ferramenta reverte.
-> Serve para disfarçar/brincar, não para proteger segredos de verdade.
-
-## Memória e economia (novidade)
-
-O Code Doctor guarda uma **memória do projeto** na pasta `.code-doctor/` (estilo
-`.git`), e isso é o que o deixa econômico:
-
-- **Cache por hash:** cada arquivo revisado é guardado por um hash do seu
-  conteúdo. Se você rodar de novo e o arquivo **não mudou**, ele reaproveita a
-  revisão anterior e **não chama a API** — zero tokens. Só arquivos que mudaram
-  gastam créditos.
-- **Backup automático:** ao usar `--apply`, o original é salvo automaticamente em
-  `.code-doctor/backups/` com data e hora. Você nunca perde a versão anterior.
-- **Prompt caching:** o prompt de sistema é marcado como cacheável, barateando
-  chamadas repetidas.
-- **Relatório de uso real:** ao final, o tool mostra quantos arquivos vieram da
-  memória (0 tokens) e quantos tokens de verdade foram gastos via API — números
-  reais vindos da resposta da API, não estimativa.
-- **Guarda-arquivos grandes:** arquivos acima de ~120 KB são pulados por padrão
-  para não estourar tokens.
-
-Flags relacionadas:
-
-```bash
-code-doctor ./src              # usa a memória automaticamente
-code-doctor ./src --no-cache   # ignora a memória e reanalisa tudo
-code-doctor --clear-cache      # apaga a memória de revisões
-```
-
-> A pasta `.code-doctor/` já está no `.gitignore` — cache e backups ficam locais,
-> não vão para o repositório.
-
-## Como usar (GitHub Action)
-
-O repositório já vem com o workflow `.github/workflows/code-doctor.yml`. Para
-ativá-lo no seu projeto:
-
-1. Copie a pasta `.github/` para o seu repositório.
-2. No GitHub, vá em **Settings → Secrets and variables → Actions** e crie um
-   secret chamado `ANTHROPIC_API_KEY` com a sua chave.
-3. Abra um Pull Request — o Code Doctor comenta a revisão dos arquivos alterados.
-
-> A Action **nunca aplica** mudanças; ela só revisa e comenta. Para bloquear o
-> merge quando houver algo grave, adicione `--fail-on high` no passo de revisão.
-
-## Como funciona
-
-Cada arquivo é enviado ao modelo com um prompt de revisão. O modelo responde em
-JSON estruturado (resumo, lista de problemas com severidade e linha, e o código
-corrigido completo). O CLI formata isso no terminal, gera o diff e, com
-`--apply`, grava a versão corrigida.
-
-## Aviso
-
-A revisão é gerada por IA e pode errar — trate como um segundo par de olhos,
-não como verdade absoluta. Sempre revise o diff antes de aplicar, especialmente
-em código de produção.
-
-
-## Segurança e autoria
-
-Antes de publicar, vale ler o [SECURITY.md](SECURITY.md). Resumo do que já está
-protegido de fábrica:
-
-- Chaves de API só em `.env` (que está no `.gitignore`) — nunca no código, cache,
-  backups ou logs.
-- Servidor web só em `127.0.0.1`, com checagem de `Host` (anti DNS-rebinding) e de
-  `Origin` (anti-CSRF), então outros sites do seu navegador não conseguem usá-lo.
-- `--apply` sempre faz backup automático antes de sobrescrever.
-- A ferramenta nunca executa o código analisado nem a resposta do modelo.
-- Na GitHub Action, PRs de forks não recebem secrets (e a revisão é pulada) — não
-  habilite o envio de secrets para forks.
-
-Para privacidade total, use um provedor **local** (`CODE_DOCTOR_PROVIDER=ollama`):
-nada sai da sua máquina.
-
-Autoria em [AUTHORS.md](AUTHORS.md). Veja a assinatura com:
-
-```bash
-code-doctor --about
-```
-
-## Licença
-
-MIT — veja [LICENSE](LICENSE).
+Criado por **Vitor** (@Vitor-AM-IO).
+Licença MIT — veja [LICENSE](LICENSE) e [AUTHORS.md](AUTHORS.md).

@@ -120,13 +120,25 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"error": str(exc)})
             return
 
-        provider, err = _provider()
-        if provider is None:
-            self._json(200, {"error": err or "Provedor não configurado."})
-            return
+        data = self._read_json()
+
+        # O modelo/provedor pode vir escolhido pela interface. Se não vier,
+        # usa o padrão do .env.
+        prov_name = (data.get("provider") or "").strip()
+        model_override = (data.get("model") or "").strip()
+        if prov_name:
+            try:
+                provider = providers.get_provider(prov_name, model_override or None)
+            except providers.ProviderError as exc:
+                self._json(200, {"error": str(exc)})
+                return
+        else:
+            provider, err = _provider()
+            if provider is None:
+                self._json(200, {"error": err or "Provedor não configurado."})
+                return
 
         model = provider.model
-        data = self._read_json()
 
         if self.path == "/api/review":
             code = data.get("code", "")
@@ -278,6 +290,18 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <div class="tab" data-mode="hide">🕵️ Camuflar</div>
   </div>
 
+  <div id="model-bar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px">
+    <span style="color:var(--muted);font-size:13px">Modelo:</span>
+    <select id="modelo" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px">
+      <option value="sonnet">Melhor qualidade ($2/$10 por 1M)</option>
+      <option value="haiku">Mais econômico ($1/$5 por 1M)</option>
+      <option value="ollama">Grátis — roda no seu PC (Ollama)</option>
+    </select>
+    <input type="text" id="ollamaModel" value="llama3.1" placeholder="modelo do Ollama"
+      style="display:none;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:150px">
+    <span id="modelo-hint" style="color:var(--muted);font-size:12px"></span>
+  </div>
+
   <!-- REVIEW -->
   <div id="pane-review">
     <label>Nome do arquivo (opcional — ajuda a detectar a linguagem)</label>
@@ -344,10 +368,34 @@ INDEX_HTML = r"""<!DOCTYPE html>
 let PRICE_IN=2.0, PRICE_OUT=10.0;      // por milhão de tokens (padrão Sonnet 5)
 let sessTokens=0, sessCost=0;
 
+// Modelos que a pessoa pode escolher na interface.
+const MODELS = {
+  sonnet: {provider:'anthropic', model:'claude-sonnet-5',            pin:2, pout:10, hint:'Melhor qualidade. Bom pra revisões difíceis.'},
+  haiku:  {provider:'anthropic', model:'claude-haiku-4-5-20251001',  pin:1, pout:5,  hint:'Metade do preço. Ótimo pro dia a dia.'},
+  ollama: {provider:'ollama',    model:'',                           pin:0, pout:0,  hint:'Grátis! Precisa do Ollama instalado e rodando no seu PC.'},
+};
+
+function currentChoice(){
+  const k=document.getElementById('modelo').value;
+  const m=MODELS[k];
+  const model = k==='ollama'
+    ? (document.getElementById('ollamaModel').value.trim() || 'llama3.1')
+    : m.model;
+  return {provider:m.provider, model};
+}
+
+function onModelChange(){
+  const k=document.getElementById('modelo').value;
+  const m=MODELS[k];
+  PRICE_IN=m.pin; PRICE_OUT=m.pout;
+  document.getElementById('ollamaModel').style.display = k==='ollama' ? '' : 'none';
+  document.getElementById('modelo-hint').textContent = m.hint;
+}
+
 async function loadStatus(){
   try{
     const s=await (await fetch('/api/status')).json();
-    document.getElementById('ver').textContent='v'+s.version+' · '+s.provider+(s.model?'/'+s.model:'');
+    document.getElementById('ver').textContent='v'+s.version;
     PRICE_IN=s.price_in; PRICE_OUT=s.price_out;
     if(s.signature){ document.getElementById('sig').textContent=s.signature; }
     if(!s.has_key){
@@ -402,7 +450,7 @@ async function doReview(){
   try{
     const res=await fetch('/api/review',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({code, filename:document.getElementById('filename').value})});
+      body:JSON.stringify({code, filename:document.getElementById('filename').value, ...currentChoice()})});
     const d=await res.json();
     if(d.usage) updateMeter(d.usage, d.from_cache);
     if(d.error){showError(d.error);return;}
@@ -451,7 +499,7 @@ async function doAsk(){
   try{
     const res=await fetch('/api/ask',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({question, code:document.getElementById('code2').value})});
+      body:JSON.stringify({question, code:document.getElementById('code2').value, ...currentChoice()})});
     const d=await res.json();
     if(d.usage) updateMeter(d.usage, d.from_cache);
     if(d.error){showError(d.error);return;}
@@ -490,6 +538,9 @@ document.getElementById('btn-reveal').onclick=()=>doCamouflage('reveal');
 document.getElementById('btn-review').onclick=doReview;
 document.getElementById('btn-ask').onclick=doAsk;
 document.getElementById('budget').oninput=()=>updateMeter({input:0,output:0}, true);
+document.getElementById('modelo').onchange=onModelChange;
+document.getElementById('ollamaModel').oninput=()=>{};
+onModelChange();  // inicializa dica e preços
 </script>
 </body>
 </html>"""
