@@ -181,12 +181,76 @@ def _camouflage_cmd(raw: list[str]) -> int:
     return 0
 
 
+def _install_ollama() -> int:
+    """Instala o Ollama (IA local e grátis), detectando o sistema operacional."""
+    import platform
+    import shutil
+    import subprocess
+    import webbrowser
+
+    system = platform.system()
+    print(_c("Instalar o Ollama — roda uma IA de graça no seu computador.\n", "1"))
+    print(f"Sistema detectado: {system}\n")
+    try:
+        resp = input("Tentar instalar automaticamente agora? [s/n]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return 0
+
+    if not resp.startswith("s"):
+        print("Sem problema — abrindo a página de download oficial…")
+        webbrowser.open("https://ollama.com/download")
+        return 0
+
+    ok = False
+    if system == "Windows":
+        if shutil.which("winget"):
+            print("\nInstalando via winget… (pode pedir confirmação do Windows)\n")
+            r = subprocess.run(["winget", "install", "--id", "Ollama.Ollama",
+                                "-e", "--source", "winget"])
+            ok = r.returncode == 0
+        if not ok:
+            print("\nNão deu pelo winget. Abrindo a página de download…")
+            webbrowser.open("https://ollama.com/download")
+            return 0
+    elif system == "Darwin":
+        if shutil.which("brew"):
+            print("\nInstalando via Homebrew…\n")
+            ok = subprocess.run(["brew", "install", "ollama"]).returncode == 0
+        if not ok:
+            print("\nAbrindo a página de download…")
+            webbrowser.open("https://ollama.com/download")
+            return 0
+    else:  # Linux
+        print("\nVou rodar o instalador oficial do Ollama:")
+        print("  curl -fsSL https://ollama.com/install.sh | sh\n")
+        c = input("Continuar? [s/n]: ").strip().lower()
+        if not c.startswith("s"):
+            return 0
+        ok = subprocess.run("curl -fsSL https://ollama.com/install.sh | sh",
+                            shell=True).returncode == 0
+
+    if ok:
+        print(_c("\n✓ Ollama instalado (ou já estava).", "32"))
+        try:
+            m = input("Baixar o modelo llama3.1 agora? [s/n]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            m = "n"
+        if m.startswith("s") and shutil.which("ollama"):
+            subprocess.run(["ollama", "pull", "llama3.1"])
+        print("\nPronto! Deixe o Ollama aberto e escolha 'Grátis (Ollama)' na interface.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     raw = sys.argv[1:] if argv is None else argv
     if raw and raw[0] in ("--about", "about"):
         from . import SIGNATURE
         print(SIGNATURE)
         return 0
+    # Instalador do Ollama (IA local e grátis).
+    if raw and raw[0] in ("instalar-ollama", "ollama-install", "instalar_ollama"):
+        return _install_ollama()
+
     # Subcomando: `code-doctor web` abre a interface no navegador.
     if raw and raw[0] == "web":
         from . import web
