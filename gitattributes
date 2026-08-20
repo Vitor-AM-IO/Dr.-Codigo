@@ -1,8 +1,0 @@
-# Normaliza quebras de linha por tipo de arquivo.
-* text=auto
-
-# Scripts do Windows precisam de CRLF; scripts de Unix precisam de LF.
-*.bat text eol=crlf
-*.cmd text eol=crlf
-*.sh  text eol=lf
-*.py  text eol=lf
