@@ -69,3 +69,11 @@ def price_in_per_mtok() -> float:
 
 def price_out_per_mtok() -> float:
     return float(os.environ.get("CODE_DOCTOR_PRICE_OUT", "10.0"))
+
+
+def usd_brl() -> float:
+    """Cotação dólar→real para a estimativa em R$. Ajustável por ambiente."""
+    try:
+        return float(os.environ.get("CODE_DOCTOR_USD_BRL", "5.17"))
+    except ValueError:
+        return 5.17
