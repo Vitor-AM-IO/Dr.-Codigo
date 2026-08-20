@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -30,6 +32,25 @@ class Usage:
 
 class ProviderError(Exception):
     """Erro ao falar com o provedor (rede, autenticação, resposta inválida)."""
+
+def _segundos_para_esperar(exc, detail: str, padrao: float = 5.0) -> float:
+    """Descobre quantos segundos esperar após um erro 429 (limite de uso)."""
+    try:
+        ra = exc.headers.get("Retry-After") if exc.headers else None
+        if ra:
+            return min(float(ra) + 1, 60)
+    except (ValueError, AttributeError):
+        pass
+    m = re.search(r"in ([0-9.]+)s", detail or "")
+    if m:
+        try:
+            return min(float(m.group(1)) + 1, 60)
+        except ValueError:
+            pass
+    return padrao
+
+
+
 
 
 # Presets de provedores compatíveis com OpenAI: (base_url, variável da chave).
@@ -114,16 +135,23 @@ class OpenAICompatProvider:
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions", data=payload, headers=headers,
         )
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "ignore")[:300]
-            raise ProviderError(f"HTTP {exc.code}: {detail}") from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            raise ProviderError(f"falha de conexão: {exc}") from exc
-        except json.JSONDecodeError as exc:
-            raise ProviderError("resposta não-JSON do provedor") from exc
+        # Tenta algumas vezes: se bater no limite de uso (429), espera e repete.
+        max_tentativas = 4
+        for tentativa in range(1, max_tentativas + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", "ignore")[:300]
+                if exc.code == 429 and tentativa < max_tentativas:
+                    time.sleep(_segundos_para_esperar(exc, detail))
+                    continue
+                raise ProviderError(f"HTTP {exc.code}: {detail}") from exc
+            except (urllib.error.URLError, TimeoutError) as exc:
+                raise ProviderError(f"falha de conexão: {exc}") from exc
+            except json.JSONDecodeError as exc:
+                raise ProviderError("resposta não-JSON do provedor") from exc
 
         try:
             text = data["choices"][0]["message"]["content"] or ""
