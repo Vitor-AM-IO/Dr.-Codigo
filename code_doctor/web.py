@@ -174,6 +174,14 @@ class Handler(BaseHTTPRequestHandler):
                 "version": __version__,
                 "signature": __import__("code_doctor", fromlist=["SIGNATURE"]).SIGNATURE,
             })
+        elif self.path == "/api/config":
+            estado = config.estado_atual()
+            estado["provedores"] = {k: {"nome": v["nome"],
+                                        "precisa_chave": v["precisa_chave"],
+                                        "modelo_padrao": v["modelo_padrao"]}
+                                    for k, v in config.PROVEDORES_UI.items()}
+            estado["ollama_rodando"] = config.ollama_rodando()
+            self._json(200, estado)
         else:
             self._json(404, {"error": "não encontrado"})
 
@@ -198,6 +206,17 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         data = self._read_json()
+
+        # Salvar configuração (provedor/modelo/chave) — grava no .env LOCAL.
+        if self.path == "/api/config":
+            ok, msg = config.salvar_config(data.get("provider", ""),
+                                           data.get("model", ""),
+                                           data.get("chave", ""))
+            resp = {"ok": ok, "msg": msg}
+            if ok:
+                resp.update(config.estado_atual())
+            self._json(200, resp)
+            return
 
         # O modelo/provedor pode vir escolhido pela interface. Se não vier,
         # usa o padrão do .env.
@@ -360,29 +379,35 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <header>
   <span class="logo">🩺</span>
   <h1>Code Doctor</h1>
-  <span class="ver" id="ver"></span>
+  <button id="cfgbtn" style="margin-left:auto;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer">⚙️ Configurar IA</button>
+  <span class="ver" id="ver" style="margin-left:10px"></span>
 </header>
 
 <div class="wrap">
   <div class="banner" id="banner"></div>
+
+  <div id="cfgpanel" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px">
+    <b>⚙️ De onde vem a inteligência artificial</b>
+    <div style="color:var(--muted);font-size:12px;margin:6px 0 12px">Tudo fica salvo só no seu computador (.env). Sua chave nunca sai daqui e ninguém de fora acessa.</div>
+    <label style="display:block;font-size:13px;color:var(--muted);margin:8px 0 4px">Provedor</label>
+    <select id="cfg-prov" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px"></select>
+    <div id="cfg-chave-box">
+      <label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">Chave da API <span id="cfg-chave-atual" style="color:var(--muted);font-size:12px"></span></label>
+      <input type="password" id="cfg-chave" placeholder="cole a chave (fica só no seu PC)" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px">
+      <div id="cfg-chave-ajuda" style="color:var(--muted);font-size:12px;margin-top:4px"></div>
+    </div>
+    <label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">Modelo</label>
+    <input type="text" id="cfg-model" placeholder="nome do modelo" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px">
+    <div id="cfg-ollama-aviso" style="color:var(--muted);font-size:12px;margin-top:8px;display:none"></div>
+    <button class="btn" id="cfg-salvar" style="margin-top:14px">💾 Salvar</button>
+    <span id="cfg-msg" style="color:var(--muted);font-size:12px;margin-left:10px"></span>
+  </div>
 
   <div class="tabs">
     <div class="tab active" data-mode="review">Revisar código</div>
     <div class="tab" data-mode="ask">Tirar dúvida</div>
     <div class="tab" data-mode="hide">🕵️ Camuflar</div>
     <div class="tab" data-mode="zip">📦 Projeto (.zip)</div>
-  </div>
-
-  <div id="model-bar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px">
-    <span style="color:var(--muted);font-size:13px">Modelo:</span>
-    <select id="modelo" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px">
-      <option value="sonnet">Melhor qualidade ($2/$10 por 1M)</option>
-      <option value="haiku">Mais econômico ($1/$5 por 1M)</option>
-      <option value="ollama">Grátis — roda no seu PC (Ollama)</option>
-    </select>
-    <input type="text" id="ollamaModel" value="llama3.1" placeholder="modelo do Ollama"
-      style="display:none;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:150px">
-    <span id="modelo-hint" style="color:var(--muted);font-size:12px"></span>
   </div>
 
   <!-- REVIEW -->
@@ -465,33 +490,78 @@ INDEX_HTML = r"""<!DOCTYPE html>
 </div>
 
 <script>
-let PRICE_IN=2.0, PRICE_OUT=10.0;      // por milhão de tokens (padrão Sonnet 5)
+let PRICE_IN=2.0, PRICE_OUT=10.0;      // por milhão de tokens
 let USD_BRL=5.17;                       // cotação dólar→real (vem do servidor)
 let sessTokens=0, sessCost=0;
+let CURRENT_PROVIDER='anthropic';       // provedor configurado (vem do servidor)
 
-// Modelos que a pessoa pode escolher na interface.
-const MODELS = {
-  sonnet: {provider:'anthropic', model:'claude-sonnet-5',            pin:2, pout:10, hint:'Melhor qualidade. Bom pra revisões difíceis.'},
-  haiku:  {provider:'anthropic', model:'claude-haiku-4-5-20251001',  pin:1, pout:5,  hint:'Metade do preço. Ótimo pro dia a dia.'},
-  ollama: {provider:'ollama',    model:'',                           pin:0, pout:0,  hint:'Grátis! Precisa do Ollama instalado e rodando no seu PC.'},
+// As requisições usam a IA configurada na central ⚙️ (salva no .env),
+// então não enviam provider/model por requisição.
+function currentChoice(){ return {}; }
+
+// ---- Central de configuração ⚙️ ----
+let CFG={provedores:{}};
+async function carregarConfig(){
+  try{
+    const c=await (await fetch('/api/config')).json();
+    CFG=c; CURRENT_PROVIDER=c.provider;
+    PRICE_IN=c.price_in; PRICE_OUT=c.price_out;
+    if(c.usd_brl) USD_BRL=c.usd_brl;
+    const sel=document.getElementById('cfg-prov'); sel.innerHTML='';
+    for(const [id,p] of Object.entries(c.provedores)){
+      const label = id==='ollama'
+        ? p.nome + (c.ollama_rodando ? ' — ✓ detectado!' : ' — (não está rodando)')
+        : p.nome;
+      sel.innerHTML+='<option value="'+id+'">'+label+'</option>';
+    }
+    sel.value=c.provider;
+    document.getElementById('cfg-model').value=c.model||'';
+    cfgAtualizaCampos();
+    if(c.tem_chave)
+      document.getElementById('cfg-chave-atual').textContent='(salva: '+c.chave_mascarada+' — deixe em branco pra manter)';
+  }catch(e){}
+}
+function cfgAtualizaCampos(){
+  const id=document.getElementById('cfg-prov').value;
+  const p=(CFG.provedores||{})[id]||{};
+  document.getElementById('cfg-chave-box').style.display = p.precisa_chave ? '' : 'none';
+  const aviso=document.getElementById('cfg-ollama-aviso');
+  if(id==='ollama'){ aviso.style.display='';
+    aviso.textContent = CFG.ollama_rodando ? '✓ Ollama detectado no seu PC. É grátis e local.'
+      : '⚠ O Ollama não está rodando. Abra o app do Ollama antes de usar.';
+  } else aviso.style.display='none';
+  const ajuda={anthropic:'platform.claude.com/settings/keys (começa com sk-ant-)',
+    groq:'Grátis em console.groq.com (começa com gsk_)',
+    openai:'platform.openai.com (começa com sk-)'}[id]||'';
+  document.getElementById('cfg-chave-ajuda').textContent=ajuda;
+}
+document.getElementById('cfg-prov').onchange=()=>{
+  const id=document.getElementById('cfg-prov').value;
+  document.getElementById('cfg-model').value=((CFG.provedores||{})[id]||{}).modelo_padrao||'';
+  document.getElementById('cfg-chave').value='';
+  document.getElementById('cfg-chave-atual').textContent='';
+  cfgAtualizaCampos();
+};
+document.getElementById('cfgbtn').onclick=()=>{
+  const pnl=document.getElementById('cfgpanel');
+  pnl.style.display = pnl.style.display==='none' ? '' : 'none';
+};
+document.getElementById('cfg-salvar').onclick=async ()=>{
+  const body={provider:document.getElementById('cfg-prov').value,
+    model:document.getElementById('cfg-model').value,
+    chave:document.getElementById('cfg-chave').value};
+  const msg=document.getElementById('cfg-msg'); msg.textContent='salvando…';
+  try{
+    const r=await (await fetch('/api/config',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    msg.textContent = r.ok ? '✓ salvo!' : ('⚠ '+r.msg);
+    if(r.ok){ CURRENT_PROVIDER=r.provider; PRICE_IN=r.price_in; PRICE_OUT=r.price_out;
+      document.getElementById('cfg-chave').value='';
+      if(r.chave_mascarada) document.getElementById('cfg-chave-atual').textContent='(salva: '+r.chave_mascarada+')';
+      document.getElementById('banner').style.display='none'; }
+  }catch(e){ msg.textContent='⚠ falha ao salvar'; }
 };
 
-function currentChoice(){
-  const k=document.getElementById('modelo').value;
-  const m=MODELS[k];
-  const model = k==='ollama'
-    ? (document.getElementById('ollamaModel').value.trim() || 'llama3.1')
-    : m.model;
-  return {provider:m.provider, model};
-}
-
-function onModelChange(){
-  const k=document.getElementById('modelo').value;
-  const m=MODELS[k];
-  PRICE_IN=m.pin; PRICE_OUT=m.pout;
-  document.getElementById('ollamaModel').style.display = k==='ollama' ? '' : 'none';
-  document.getElementById('modelo-hint').textContent = m.hint;
-}
 
 async function loadStatus(){
   try{
@@ -508,6 +578,7 @@ async function loadStatus(){
   }catch(e){}
 }
 loadStatus();
+carregarConfig();
 
 // troca de abas
 document.querySelectorAll('.tab').forEach(t=>{
@@ -547,7 +618,7 @@ function showError(msg){
 }
 
 function maybeOllamaHint(msg){
-  if(document.getElementById('modelo').value==='ollama'){
+  if(CURRENT_PROVIDER==='ollama'){
     return msg + '  —  Dica: o Ollama precisa estar instalado e rodando. No terminal, rode: code-doctor instalar-ollama  (ou baixe em ollama.com).';
   }
   return msg;
@@ -705,9 +776,6 @@ function renderZip(d){
 document.getElementById('btn-review').onclick=doReview;
 document.getElementById('btn-ask').onclick=doAsk;
 document.getElementById('budget').oninput=()=>updateMeter({input:0,output:0}, true);
-document.getElementById('modelo').onchange=onModelChange;
-document.getElementById('ollamaModel').oninput=()=>{};
-onModelChange();  // inicializa dica e preços
 </script>
 </body>
 </html>"""
