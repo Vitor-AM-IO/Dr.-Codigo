@@ -77,3 +77,8 @@ def usd_brl() -> float:
         return float(os.environ.get("CODE_DOCTOR_USD_BRL", "5.17"))
     except ValueError:
         return 5.17
+
+
+# Limites para análise de projeto (.zip): evita custo alto e uploads gigantes.
+MAX_ZIP_FILES = 20          # nº máximo de arquivos analisados por zip
+ZIP_MAX_BYTES = 8_000_000   # tamanho máximo do zip enviado (8 MB)
