@@ -111,6 +111,16 @@ Três abas no topo:
 | 💬 **Tirar dúvida** | Escreva a pergunta → botão **Perguntar**. |
 | 🕵️ **Camuflar** | Cole o código, escolha um idioma secreto → **Camuflar** / **Revelar**. É só diversão, não gasta nada. |
 
+### 📦 Projeto (.zip)
+Envie o seu projeto inteiro compactado em `.zip` e escolha o que quer:
+- **Resumo geral** — uma visão do todo numa única análise (mais barato);
+- **Arquivo por arquivo** — revisão detalhada de cada arquivo (mais caro);
+- **Só os problemas graves** — foco em segurança e bugs, saída curta (econômico).
+
+Analisa até 20 arquivos de código por projeto (zip até 8 MB). Cada arquivo custa
+tokens — a barrinha de gasto mostra o total. Pra manter tudo local e grátis, use
+o modelo **Ollama**.
+
 A **barrinha embaixo** mostra o quanto você já gastou na sessão, em **dólar e em
 reais** (R$). É uma estimativa; a cotação pode ser ajustada na variável
 `CODE_DOCTOR_USD_BRL`.
