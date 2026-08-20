@@ -10,12 +10,18 @@ Usa apenas a biblioteca padrão (http.server) — nenhuma dependência web extra
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import os
+import shutil
+import tempfile
 import threading
 import webbrowser
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from . import __version__, analyzer, config, providers
 
@@ -35,6 +41,76 @@ def _provider():
 def _usage_dict(u: analyzer.Usage) -> dict:
     return {"input": u.input_tokens, "output": u.output_tokens,
             "cache_read": u.cache_read_tokens}
+
+
+def analyze_zip(b64: str, mode: str, provider) -> dict:
+    """Descompacta um .zip e analisa os arquivos de código do projeto."""
+    try:
+        raw = base64.b64decode(b64.split(",")[-1])
+    except Exception:
+        return {"error": "não consegui ler o arquivo enviado"}
+    if len(raw) > config.ZIP_MAX_BYTES:
+        return {"error": f"arquivo grande demais (máx {config.ZIP_MAX_BYTES // 1_000_000} MB)"}
+
+    tmp = tempfile.mkdtemp(prefix="drcodigo_")
+    try:
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                z.extractall(tmp)  # extractall sanitiza caminhos (anti zip-slip)
+        except zipfile.BadZipFile:
+            return {"error": "isso não parece ser um .zip válido"}
+
+        paths = analyzer.collect_files(Path(tmp), config.DEFAULT_EXTENSIONS)
+        truncated = len(paths) > config.MAX_ZIP_FILES
+        paths = paths[:config.MAX_ZIP_FILES]
+        if not paths:
+            return {"error": "não encontrei arquivos de código nesse projeto"}
+
+        # lê os arquivos (rel = caminho relativo, sem a pasta temporária)
+        files: list[tuple[str, str]] = []
+        for p in paths:
+            try:
+                files.append((str(p.relative_to(tmp)), p.read_text(encoding="utf-8")))
+            except (UnicodeDecodeError, OSError):
+                continue
+
+        total = analyzer.Usage()
+
+        if mode == "resumo":
+            text, usage, err = analyzer.review_project(files, provider)
+            total.add(usage)
+            if err:
+                return {"error": err, "usage": _usage_dict(total)}
+            return {"mode": "resumo", "summary": text, "files_count": len(files),
+                    "truncated": truncated, "usage": _usage_dict(total)}
+
+        results = []
+        for rel, code in files:
+            if mode == "graves":
+                r = analyzer.review_serious(code, rel, provider)
+            else:  # "arquivo"
+                r = analyzer.review_text(code, rel, provider)
+            total.add(r.usage)
+            if not r.ok:
+                results.append({"file": rel, "error": r.error})
+                continue
+            issues = [{"line": i.line, "severity": i.severity, "title": i.title,
+                       "description": i.description, "suggestion": i.suggestion}
+                      for i in r.issues]
+            if mode == "graves":
+                issues = [i for i in issues if i["severity"] in ("critical", "high")]
+                if not issues:
+                    continue  # no modo 'graves', só mostra arquivos com algo grave
+                results.append({"file": rel, "issues": issues})
+            else:
+                results.append({"file": rel, "summary": r.summary, "issues": issues,
+                                "corrected_code": r.corrected_code if r.changed else "",
+                                "changed": r.changed})
+
+        return {"mode": mode, "results": results, "files_count": len(files),
+                "truncated": truncated, "usage": _usage_dict(total)}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
@@ -140,6 +216,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         model = provider.model
+
+        if self.path == "/api/analyze-zip":
+            self._json(200, analyze_zip(data.get("zip", ""),
+                                        data.get("mode", "resumo"), provider))
+            return
 
         if self.path == "/api/review":
             code = data.get("code", "")
@@ -289,6 +370,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <div class="tab active" data-mode="review">Revisar código</div>
     <div class="tab" data-mode="ask">Tirar dúvida</div>
     <div class="tab" data-mode="hide">🕵️ Camuflar</div>
+    <div class="tab" data-mode="zip">📦 Projeto (.zip)</div>
   </div>
 
   <div id="model-bar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px">
@@ -342,6 +424,23 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <div class="hint">100% local — não usa a API, não gasta nada. É camuflagem, não
       criptografia: qualquer um com esta ferramenta revela. Serve para disfarçar/brincar,
       não para guardar segredos de verdade.</div>
+  </div>
+
+  <!-- PROJETO (.zip) -->
+  <div id="pane-zip" style="display:none">
+    <label>Envie o seu projeto compactado em .zip</label>
+    <input type="file" id="zipfile" accept=".zip"
+      style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:11px 12px">
+    <label>O que você quer?</label>
+    <select id="zipmode" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%">
+      <option value="resumo">Resumo geral do projeto — visão do todo (mais barato)</option>
+      <option value="arquivo">Revisar arquivo por arquivo — detalhado (mais caro)</option>
+      <option value="graves">Só os problemas graves — foco em segurança/bugs (econômico)</option>
+    </select>
+    <button class="btn" id="btn-zip">Analisar projeto</button>
+    <div class="hint">Analisa até 20 arquivos de código por projeto (zip até 8 MB).
+      Cada arquivo custa tokens — a barrinha embaixo mostra o gasto. Seu código é
+      enviado para a IA escolhida (use Ollama pra manter tudo local e grátis).</div>
   </div>
 
   <div class="result" id="result"></div>
@@ -419,6 +518,7 @@ document.querySelectorAll('.tab').forEach(t=>{
     document.getElementById('pane-review').style.display = m==='review'?'':'none';
     document.getElementById('pane-ask').style.display = m==='ask'?'':'none';
     document.getElementById('pane-hide').style.display = m==='hide'?'':'none';
+    document.getElementById('pane-zip').style.display = m==='zip'?'':'none';
   };
 });
 
@@ -545,6 +645,62 @@ function copyResult(btn){navigator.clipboard.writeText(window._camout||'');btn.t
 
 document.getElementById('btn-hide').onclick=()=>doCamouflage('hide');
 document.getElementById('btn-reveal').onclick=()=>doCamouflage('reveal');
+document.getElementById('btn-zip').onclick=doAnalyzeZip;
+
+async function doAnalyzeZip(){
+  const inp=document.getElementById('zipfile');
+  if(!inp.files || !inp.files[0]){ showError('Escolha um arquivo .zip primeiro.'); return; }
+  const mode=document.getElementById('zipmode').value;
+  const btn=document.getElementById('btn-zip');
+  btn.disabled=true; btn.textContent='Analisando projeto…';
+  try{
+    const b64=await new Promise((ok,err)=>{
+      const r=new FileReader();
+      r.onload=()=>ok(r.result); r.onerror=()=>err(); r.readAsDataURL(inp.files[0]);
+    });
+    const res=await fetch('/api/analyze-zip',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({zip:b64, mode, ...currentChoice()})});
+    const d=await res.json();
+    if(d.usage) updateMeter(d.usage, false);
+    if(d.error){ showError(maybeOllamaHint(d.error)); return; }
+    renderZip(d);
+  }catch(e){ showError('Falha ao enviar o projeto.'); }
+  finally{ btn.disabled=false; btn.textContent='Analisar projeto'; }
+}
+
+function renderZip(d){
+  const r=document.getElementById('result'); r.style.display='block';
+  const note = d.truncated ? '<div class="hint">Mostrando os primeiros '+d.files_count+' arquivos (limite para controlar o custo).</div>' : '';
+  if(d.mode==='resumo'){
+    r.innerHTML='<div class="card"><b>Resumo do projeto</b> <span class="loc">('+d.files_count+' arquivos)</span>'
+      +'<div style="white-space:pre-wrap;margin-top:8px">'+esc(d.summary)+'</div></div>'+note;
+    return;
+  }
+  const results=d.results||[];
+  if(!results.length){
+    r.innerHTML='<div class="card"><p class="ok">✓ Nenhum problema '+(d.mode==='graves'?'grave ':'')+'encontrado nos '+d.files_count+' arquivos.</p></div>'+note;
+    return;
+  }
+  const order={critical:0,high:1,medium:2,low:3};
+  const lbl={critical:'CRÍTICO',high:'ALTO',medium:'MÉDIO',low:'BAIXO'};
+  let html='';
+  for(const f of results){
+    html+='<div class="card"><div class="code-head"><b>'+esc(f.file)+'</b>';
+    if(f.summary) html+=' <span class="loc">'+esc(f.summary)+'</span>';
+    html+='</div>';
+    if(f.error){ html+='<div style="color:#ffb4b4">'+esc(f.error)+'</div></div>'; continue; }
+    const iss=(f.issues||[]).slice().sort((a,b)=>(order[a.severity]??9)-(order[b.severity]??9));
+    for(const i of iss){
+      html+='<div class="issue"><span class="chip c-'+i.severity+'">'+(lbl[i.severity]||i.severity)+'</span>'
+        +'<b>'+esc(i.title)+'</b> <span class="loc">('+(i.line?'linha '+i.line:'geral')+')</span>'
+        +'<div>'+esc(i.description)+'</div>'
+        +(i.suggestion?'<div class="fix">→ '+esc(i.suggestion)+'</div>':'')+'</div>';
+    }
+    html+='</div>';
+  }
+  r.innerHTML=html+note;
+}
 
 document.getElementById('btn-review').onclick=doReview;
 document.getElementById('btn-ask').onclick=doAsk;
