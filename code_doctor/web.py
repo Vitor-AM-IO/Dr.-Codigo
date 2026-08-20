@@ -94,6 +94,7 @@ class Handler(BaseHTTPRequestHandler):
                 "model": prov.model if prov else "",
                 "price_in": config.price_in_per_mtok(),
                 "price_out": config.price_out_per_mtok(),
+                "usd_brl": config.usd_brl(),
                 "version": __version__,
                 "signature": __import__("code_doctor", fromlist=["SIGNATURE"]).SIGNATURE,
             })
@@ -366,6 +367,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
 
 <script>
 let PRICE_IN=2.0, PRICE_OUT=10.0;      // por milhão de tokens (padrão Sonnet 5)
+let USD_BRL=5.17;                       // cotação dólar→real (vem do servidor)
 let sessTokens=0, sessCost=0;
 
 // Modelos que a pessoa pode escolher na interface.
@@ -397,6 +399,7 @@ async function loadStatus(){
     const s=await (await fetch('/api/status')).json();
     document.getElementById('ver').textContent='v'+s.version;
     PRICE_IN=s.price_in; PRICE_OUT=s.price_out;
+    if(s.usd_brl){ USD_BRL=s.usd_brl; }
     if(s.signature){ document.getElementById('sig').textContent=s.signature; }
     if(!s.has_key){
       const b=document.getElementById('banner');
@@ -421,12 +424,13 @@ document.querySelectorAll('.tab').forEach(t=>{
 
 function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
+function brl(usd){ return (usd*USD_BRL).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function updateMeter(u, fromCache){
   const inTok=u.input||0, outTok=u.output||0;
   const cost=(inTok/1e6)*PRICE_IN + (outTok/1e6)*PRICE_OUT;
   if(!fromCache){ sessTokens+=inTok+outTok; sessCost+=cost; }
   document.getElementById('tok-session').textContent=sessTokens.toLocaleString('pt-BR')+' tokens';
-  document.getElementById('cost-session').textContent='$'+sessCost.toFixed(4);
+  document.getElementById('cost-session').textContent='$'+sessCost.toFixed(4)+' (≈ R$ '+brl(sessCost)+')';
   const budget=parseFloat(document.getElementById('budget').value)||0.5;
   const pct=Math.min(100,(sessCost/budget)*100);
   const fill=document.getElementById('bar-fill');
@@ -434,12 +438,19 @@ function updateMeter(u, fromCache){
   fill.style.background = pct>90?'var(--crit)':pct>66?'var(--high)':'var(--accent2)';
   document.getElementById('last-call').textContent = fromCache
     ? 'última: memória (0 tokens)'
-    : 'última: '+inTok+' entrada / '+outTok+' saída · $'+cost.toFixed(4);
+    : 'última: '+inTok+' entrada / '+outTok+' saída · $'+cost.toFixed(4)+' (≈ R$ '+brl(cost)+')';
 }
 
 function showError(msg){
   const r=document.getElementById('result'); r.style.display='block';
   r.innerHTML='<div class="card" style="border-color:#5c2b2b;color:#ffb4b4">'+esc(msg)+'</div>';
+}
+
+function maybeOllamaHint(msg){
+  if(document.getElementById('modelo').value==='ollama'){
+    return msg + '  —  Dica: o Ollama precisa estar instalado e rodando. No terminal, rode: code-doctor instalar-ollama  (ou baixe em ollama.com).';
+  }
+  return msg;
 }
 
 async function doReview(){
@@ -453,7 +464,7 @@ async function doReview(){
       body:JSON.stringify({code, filename:document.getElementById('filename').value, ...currentChoice()})});
     const d=await res.json();
     if(d.usage) updateMeter(d.usage, d.from_cache);
-    if(d.error){showError(d.error);return;}
+    if(d.error){showError(maybeOllamaHint(d.error));return;}
     renderReview(d);
   }catch(e){showError('Falha de conexão com o servidor.');}
   finally{btn.disabled=false; btn.textContent='Revisar';}
@@ -502,7 +513,7 @@ async function doAsk(){
       body:JSON.stringify({question, code:document.getElementById('code2').value, ...currentChoice()})});
     const d=await res.json();
     if(d.usage) updateMeter(d.usage, d.from_cache);
-    if(d.error){showError(d.error);return;}
+    if(d.error){showError(maybeOllamaHint(d.error));return;}
     const r=document.getElementById('result'); r.style.display='block';
     r.innerHTML='<div class="card"><div style="white-space:pre-wrap">'+esc(d.answer)+'</div></div>';
   }catch(e){showError('Falha de conexão com o servidor.');}
